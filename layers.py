@@ -38,6 +38,23 @@ class Embedding(nn.Module):
 
         return emb
 
+class CharEmbedding(nn.Module):
+    def __init__(self, n_chars, embed_size, max_word_len, hidden_size, drop_prob):
+        super(CharEmbedding, self).__init__()
+        self.drop_prob = drop_prob
+        self.embed = nn.Embedding(n_chars, embed_size)
+        self.proj = nn.Linear(max_word_len * embed_size, hidden_size, bias=False)
+        self.hwy = HighwayEncoder(2, hidden_size)
+
+    def forward(self, x):
+        emb = self.embed(x) # (batch_size, seq_len, max_word_len, embed_size) TODO Look at dataloader to see how chars are loaded in
+        b, sl, wl, c = emb.shape
+        emb = emb.view(b, sl, wl * c) # (batch_size, seq_len, max_word_len * embed_size)
+        emb = F.dropout(emb, self.drop_prob, self.training)
+        emb = self.proj(emb) # (batch_size, seq_len, hidden_size)
+        emb = self.hwy(emb) # (batch_size, seq_len, hidden_size)
+
+        return emb
 
 class HighwayEncoder(nn.Module):
     """Encode an input sequence using a highway network.

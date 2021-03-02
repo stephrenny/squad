@@ -17,7 +17,7 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF
+from models import BiDAF, CharBiDAF
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
@@ -42,13 +42,30 @@ def main(args):
 
     # Get embeddings
     log.info('Loading embeddings...')
-    word_vectors = util.torch_from_json(args.word_emb_file)
+    # word_vectors = util.torch_from_json(args.word_emb_file)
+
+    # Get data loader
+    log.info('Building dataset...')
+    train_dataset = SQuAD(args.train_record_file, args.use_squad_v2)
+    max_word_len = train_dataset[0][1].shape[-1]
+    train_loader = data.DataLoader(train_dataset,
+                                   batch_size=args.batch_size,
+                                   shuffle=True,
+                                   num_workers=args.num_workers,
+                                   collate_fn=collate_fn)
+    dev_dataset = SQuAD(args.dev_record_file, args.use_squad_v2)
+    dev_loader = data.DataLoader(dev_dataset,
+                                 batch_size=args.batch_size,
+                                 shuffle=False,
+                                 num_workers=args.num_workers,
+                                 collate_fn=collate_fn)
 
     # Get model
     log.info('Building model...')
-    model = BiDAF(word_vectors=word_vectors,
-                  hidden_size=args.hidden_size,
-                  drop_prob=args.drop_prob)
+    # model = BiDAF(word_vectors=word_vectors,
+    #               hidden_size=args.hidden_size,
+    #               drop_prob=args.drop_prob)
+    model = CharBiDAF(n_chars=128, embed_size=64, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -71,21 +88,6 @@ def main(args):
                                weight_decay=args.l2_wd)
     scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
 
-    # Get data loader
-    log.info('Building dataset...')
-    train_dataset = SQuAD(args.train_record_file, args.use_squad_v2)
-    train_loader = data.DataLoader(train_dataset,
-                                   batch_size=args.batch_size,
-                                   shuffle=True,
-                                   num_workers=args.num_workers,
-                                   collate_fn=collate_fn)
-    dev_dataset = SQuAD(args.dev_record_file, args.use_squad_v2)
-    dev_loader = data.DataLoader(dev_dataset,
-                                 batch_size=args.batch_size,
-                                 shuffle=False,
-                                 num_workers=args.num_workers,
-                                 collate_fn=collate_fn)
-
     # Train
     log.info('Training...')
     steps_till_eval = args.eval_steps
@@ -99,11 +101,16 @@ def main(args):
                 # Setup for forward
                 cw_idxs = cw_idxs.to(device)
                 qw_idxs = qw_idxs.to(device)
+
+                cc_idxs = cc_idxs.to(device)
+                qc_idxs = qc_idxs.to(device)
+
                 batch_size = cw_idxs.size(0)
                 optimizer.zero_grad()
 
                 # Forward
-                log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                # log_p1, log_p2 = model(cw_idxs, qw_idxs)
+                log_p1, log_p2 = model(cc_idxs, qc_idxs)
                 y1, y2 = y1.to(device), y2.to(device)
                 loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                 loss_val = loss.item()
