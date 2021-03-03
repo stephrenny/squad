@@ -49,9 +49,6 @@ class CharEmbedding(nn.Module):
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, x):
-        if torch.max(x) > self.n_chars:
-            print('=========')
-            print(torch.max(x))
         emb = self.embed(x) # (batch_size, seq_len, max_word_len, embed_size) TODO Look at dataloader to see how chars are loaded in
         b, sl, wl, c = emb.shape
         emb = emb.view(b, sl, wl * c) # (batch_size, seq_len, max_word_len * embed_size)

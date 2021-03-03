@@ -65,7 +65,7 @@ def main(args):
     # model = BiDAF(word_vectors=word_vectors,
     #               hidden_size=args.hidden_size,
     #               drop_prob=args.drop_prob)
-    model = CharBiDAF(n_chars=256, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=args.drop_prob)
+    model = CharBiDAF(n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -101,9 +101,6 @@ def main(args):
                 # Setup for forward
                 # cw_idxs = cw_idxs.to(device)
                 # qw_idxs = qw_idxs.to(device)
-                print('======================================')
-                print(torch.max(cc_idxs))
-                print('======================================')
 
                 cc_idxs = cc_idxs.to(device)
                 qc_idxs = qc_idxs.to(device)
@@ -113,6 +110,7 @@ def main(args):
 
                 # Forward
                 # log_p1, log_p2 = model(cw_idxs, qw_idxs)
+
                 log_p1, log_p2 = model(cc_idxs, qc_idxs)
                 y1, y2 = y1.to(device), y2.to(device)
                 loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)

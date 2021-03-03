@@ -114,8 +114,16 @@ class CharBiDAF(nn.Module):
                                       drop_prob=drop_prob)
 
     def forward(self, cc_idxs, qc_idxs):
-        c_mask = torch.zeros_like(cc_idxs) != cc_idxs
-        q_mask = torch.zeros_like(qc_idxs) != qc_idxs
+        if len(cc_idxs.shape) > 2 and len(qc_idxs.shape) > 2:
+            c_mask = torch.zeros_like(torch.sum(cc_idxs, dim=2)) != torch.sum(cc_idxs, dim=2) # Mask if all chars are 0, and is thus a padded word
+            q_mask = torch.zeros_like(torch.sum(qc_idxs, dim=2)) != torch.sum(qc_idxs, dim=2) # Mask if all chars are 0, and is thus a padded word
+        else:
+            c_mask = torch.zeros_like(cc_idxs) != cc_idxs
+            q_mask = torch.zeros_like(qc_idxs) != qc_idxs
+            f = open('error_log.txt', 'w')
+            f.write(str(cc_idxs.shape))
+            f.close()
+
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
         c_emb = self.emb(cc_idxs)         # (batch_size, c_len, hidden_size)
