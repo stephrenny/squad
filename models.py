@@ -93,7 +93,7 @@ class CharBiDAF(nn.Module):
     """
     def __init__(self, n_chars, embed_size, max_word_len, hidden_size, drop_prob=0.):
         super(CharBiDAF, self).__init__()
-        self.emb = layers.CharEmbedding(n_chars=n_chars, embed_size=embed_size, max_word_len=max_wor_len,
+        self.emb = layers.CharEmbedding(n_chars=n_chars, embed_size=embed_size, max_word_len=max_word_len,
                                     hidden_size=hidden_size,
                                     drop_prob=drop_prob)
 
@@ -114,8 +114,8 @@ class CharBiDAF(nn.Module):
                                       drop_prob=drop_prob)
 
     def forward(self, cc_idxs, qc_idxs):
-        c_mask = torch.zeros_like(cw_idxs) != cw_idxs
-        q_mask = torch.zeros_like(qw_idxs) != qw_idxs
+        c_mask = torch.zeros_like(cc_idxs) != cc_idxs
+        q_mask = torch.zeros_like(qc_idxs) != qc_idxs
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
         c_emb = self.emb(cc_idxs)         # (batch_size, c_len, hidden_size)
