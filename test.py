@@ -21,7 +21,7 @@ import util
 from args import get_test_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF
+from models import BiDAF, CharBiDAF
 from os.path import join
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -41,18 +41,11 @@ def main(args):
     log.info('Loading embeddings...')
     word_vectors = util.torch_from_json(args.word_emb_file)
 
-    # Get model
-    log.info('Building model...')
-    model = BiDAF(word_vectors=word_vectors,
-                  hidden_size=args.hidden_size)
-    model = nn.DataParallel(model, gpu_ids)
-    log.info(f'Loading checkpoint from {args.load_path}...')
-    model = util.load_model(model, args.load_path, gpu_ids, return_step=False)
-    model = model.to(device)
-    model.eval()
-
     # Get data loader
     log.info('Building dataset...')
+    train_dataset = SQuAD(args.train_record_file, args.use_squad_v2)
+    max_word_len = train_dataset[0][1].shape[-1]
+
     record_file = vars(args)[f'{args.split}_record_file']
     dataset = SQuAD(record_file, args.use_squad_v2)
     data_loader = data.DataLoader(dataset,
@@ -60,6 +53,15 @@ def main(args):
                                   shuffle=False,
                                   num_workers=args.num_workers,
                                   collate_fn=collate_fn)
+
+    # Get model
+    log.info('Building model...')
+    model = CharBiDAF(n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=0.2)
+    model = nn.DataParallel(model, gpu_ids)
+    log.info(f'Loading checkpoint from {args.load_path}...')
+    model = util.load_model(model, args.load_path, gpu_ids, return_step=False)
+    model = model.to(device)
+    model.eval()
 
     # Evaluate
     log.info(f'Evaluating on {args.split} split...')
@@ -75,10 +77,13 @@ def main(args):
             # Setup for forward
             cw_idxs = cw_idxs.to(device)
             qw_idxs = qw_idxs.to(device)
-            batch_size = cw_idxs.size(0)
+            batch_size = cc_idxs.size(0)
+
+            cc_idxs = cc_idxs.to(device)
+            wc_idxs = qc_idxs.to(device)
 
             # Forward
-            log_p1, log_p2 = model(cw_idxs, qw_idxs)
+            log_p1, log_p2 = model(cc_idxs, qc_idxs)
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)

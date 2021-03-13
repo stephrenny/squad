@@ -98,6 +98,9 @@ def main(args):
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
             for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
+                if len(cc_idxs.shape) < 3 or len(qc_idxs.shape) < 3:
+                    print(cc_idxs.shape)
+                    continue
                 # Setup for forward
                 # cw_idxs = cw_idxs.to(device)
                 # qw_idxs = qw_idxs.to(device)
@@ -110,10 +113,13 @@ def main(args):
 
                 # Forward
                 # log_p1, log_p2 = model(cw_idxs, qw_idxs)
-
                 log_p1, log_p2 = model(cc_idxs, qc_idxs)
                 y1, y2 = y1.to(device), y2.to(device)
-                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                # print(y1.shape)
+                # print(log_p1.shape)
+                # loss = (1 - torch.exp(log_p1.gather(1, y1.view(-1,1))).squeeze()) ** gamma * F.nll_loss(log_p1, y1) + (1 - torch.exp(log_p2.gather(1, y2.view(-1,1))).squeeze()) ** gamma * F.nll_loss(log_p2, y2)
+                loss = focalLoss(log_p1, y1) + focalLoss(log_p2, y2)
+                loss = loss.to(device)
                 loss_val = loss.item()
 
                 # Backward
@@ -176,10 +182,13 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
             # Setup for forward
             cw_idxs = cw_idxs.to(device)
             qw_idxs = qw_idxs.to(device)
-            batch_size = cw_idxs.size(0)
+
+            cc_idxs = cc_idxs.to(device)
+            qc_idxs = qc_idxs.to(device)
+            batch_size = cc_idxs.size(0)
 
             # Forward
-            log_p1, log_p2 = model(cw_idxs, qw_idxs)
+            log_p1, log_p2 = model(cc_idxs, qc_idxs)
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)
@@ -210,6 +219,27 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
     results = OrderedDict(results_list)
 
     return results, pred_dict
+
+def focalLoss(input, target, gamma=2, alpha=None, size_average=True):
+    if input.dim()>2:
+        input = input.view(input.size(0),input.size(1),-1)  # N,C,H,W => N,C,H*W
+        input = input.transpose(1,2)    # N,C,H*W => N,H*W,C
+        input = input.contiguous().view(-1,input.size(2))   # N,H*W,C => N*H*W,C
+    target = target.view(-1,1)
+
+    logpt = input.gather(1,target)
+    logpt = logpt.view(-1)
+    pt = torch.exp(logpt)
+
+    if alpha is not None:
+        if alpha.type()!=input.data.type():
+            alpha = alpha.type_as(input.data)
+        at = alpha.gather(0,target.data.view(-1))
+        logpt = logpt * Variable(at)
+
+    loss = -1 * (1-pt)**gamma * logpt
+    if size_average: return loss.mean()
+    else: return loss.sum()
 
 
 if __name__ == '__main__':
