@@ -107,13 +107,10 @@ class CharBiDAF(nn.Module):
                                      num_layers=1,
                                      drop_prob=drop_prob)
 
-        self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
+        self.att = layers.BiDAFSelfAttention(hidden_size=2 * hidden_size,
                                          drop_prob=drop_prob)
 
-        self.self_att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
-                                         drop_prob=drop_prob)
-
-        self.mod = layers.RNNEncoder(input_size=14 * hidden_size,
+        self.mod = layers.RNNEncoder(input_size=12 * hidden_size,
                                      hidden_size=hidden_size,
                                      num_layers=2,
                                      drop_prob=drop_prob)
@@ -147,13 +144,13 @@ class CharBiDAF(nn.Module):
         q_enc = self.enc(q_emb, q_len)    # (batch_size, q_len, 2 * hidden_size)
 
         att = self.att(c_enc, q_enc,
-                       c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
+                       c_mask, q_mask)    # (batch_size, c_len, 12 * hidden_size)
 
-        c_att = att[:, :, 2*self.hidden_size:4*self.hidden_size] # (batch_size, c_len, 2 * hidden_size)
+        # c_att = att[:, :, 2*self.hidden_size:4*self.hidden_size] # (batch_size, c_len, 2 * hidden_size)
 
-        self_att = self.self_att(c_att, c_att, c_mask, c_mask)
+        # self_att = self.self_att(c_att, c_att, c_mask, c_mask)
 
-        att = torch.cat([att, self_att[:, :, 2*self.hidden_size:]], dim=-1) # (batch_size, c_len, 14 * hidden_size)
+        # att = torch.cat([att, self_att[:, :, 2*self.hidden_size:]], dim=-1) # (batch_size, c_len, 14 * hidden_size)
 
         mod = self.mod(att, c_len)        # (batch_size, c_len, 2 * hidden_size)
 
