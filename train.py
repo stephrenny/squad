@@ -42,7 +42,7 @@ def main(args):
 
     # Get embeddings
     log.info('Loading embeddings...')
-    # word_vectors = util.torch_from_json(args.word_emb_file)
+    word_vectors = util.torch_from_json(args.word_emb_file)
 
     # Get data loader
     log.info('Building dataset...')
@@ -65,7 +65,7 @@ def main(args):
     # model = BiDAF(word_vectors=word_vectors,
     #               hidden_size=args.hidden_size,
     #               drop_prob=args.drop_prob)
-    model = CharBiDAF(n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=args.drop_prob)
+    model = CharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -75,6 +75,8 @@ def main(args):
     model = model.to(device)
     model.train()
     ema = util.EMA(model, args.ema_decay)
+
+    len_dataset = len(train_dataset)
 
     # Get saver
     saver = util.CheckpointSaver(args.save_dir,
@@ -95,6 +97,7 @@ def main(args):
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
+
         with torch.enable_grad(), \
                 tqdm(total=len(train_loader.dataset)) as progress_bar:
             for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
@@ -102,8 +105,8 @@ def main(args):
                     print(cc_idxs.shape)
                     continue
                 # Setup for forward
-                # cw_idxs = cw_idxs.to(device)
-                # qw_idxs = qw_idxs.to(device)
+                cw_idxs = cw_idxs.to(device)
+                qw_idxs = qw_idxs.to(device)
 
                 cc_idxs = cc_idxs.to(device)
                 qc_idxs = qc_idxs.to(device)
@@ -113,12 +116,16 @@ def main(args):
 
                 # Forward
                 # log_p1, log_p2 = model(cw_idxs, qw_idxs)
-                log_p1, log_p2 = model(cc_idxs, qc_idxs)
+                log_p1, log_p2 = model(cc_idxs, qc_idxs, cw_idxs, qw_idxs)
                 y1, y2 = y1.to(device), y2.to(device)
                 # print(y1.shape)
                 # print(log_p1.shape)
                 # loss = (1 - torch.exp(log_p1.gather(1, y1.view(-1,1))).squeeze()) ** gamma * F.nll_loss(log_p1, y1) + (1 - torch.exp(log_p2.gather(1, y2.view(-1,1))).squeeze()) ** gamma * F.nll_loss(log_p2, y2)
-                loss = focalLoss(log_p1, y1) + focalLoss(log_p2, y2)
+
+                # weights = torch.ones_like(log_p1[0])
+                # weights[0] = 1 / np.log(len_dataset)
+                # loss = focalLoss(log_p1, y1) + focalLoss(log_p2, y2)
+                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                 loss = loss.to(device)
                 loss_val = loss.item()
 
@@ -188,7 +195,7 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
             batch_size = cc_idxs.size(0)
 
             # Forward
-            log_p1, log_p2 = model(cc_idxs, qc_idxs)
+            log_p1, log_p2 = model(cc_idxs, qc_idxs, cw_idxs, qw_idxs)
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)
