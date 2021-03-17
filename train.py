@@ -17,7 +17,7 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF, CharBiDAF
+from models import BiDAF, CharBiDAF, SelfAttCharBiDAF
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
@@ -60,12 +60,33 @@ def main(args):
                                  num_workers=args.num_workers,
                                  collate_fn=collate_fn)
 
+    # ### REMOVE
+
+    # Checks how much of dataset has answer span ending in 0
+
+    # total_zero = 0
+    # end_lt_start = 0
+    # for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_dataset:
+    #     print(y1, y2)
+    #     if y2 == 0:
+    #         total_zero += 1
+
+    #     if y2 - y1 < 0:
+    #         end_lt_start += 1
+
+    # print('Percentage 0: {}'.format(total_zero / len(train_dataset)))
+    # print('Num end less than start: {}'.format(end_lt_start))
+
+    # exit(0)
+
+    # ### END REMOVE
+
     # Get model
     log.info('Building model...')
     # model = BiDAF(word_vectors=word_vectors,
     #               hidden_size=args.hidden_size,
     #               drop_prob=args.drop_prob)
-    model = CharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=args.drop_prob)
+    model = SelfAttCharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -122,10 +143,10 @@ def main(args):
                 # print(log_p1.shape)
                 # loss = (1 - torch.exp(log_p1.gather(1, y1.view(-1,1))).squeeze()) ** gamma * F.nll_loss(log_p1, y1) + (1 - torch.exp(log_p2.gather(1, y2.view(-1,1))).squeeze()) ** gamma * F.nll_loss(log_p2, y2)
 
-                # weights = torch.ones_like(log_p1[0])
-                # weights[0] = 1 / np.log(len_dataset)
+                weights = torch.ones_like(log_p1[0])
+                weights[0] = 1 / 3 # Hyperparameter?
                 # loss = focalLoss(log_p1, y1) + focalLoss(log_p2, y2)
-                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2, weight=weights)
                 loss = loss.to(device)
                 loss_val = loss.item()
 

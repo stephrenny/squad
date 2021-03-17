@@ -21,12 +21,15 @@ import util
 from args import get_test_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF, SelfAttCharBiDAF, CharBiDAF
+from models import BiDAF, SelfAttCharBiDAF
 from os.path import join
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD
+
+WEIGHT_PT = '/home/stephrenny/squad/save/train/self_att_weighted-02/best.pth.tar'
+MODEL_PT = '/home/stephrenny/squad/save/train/self_att_no_focal-01/best.pth.tar'
 
 def main(args):
     # Set up logging
@@ -55,12 +58,16 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    model = CharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=0.2)
+    weight_model = SelfAttCharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=0.2)
+    model = SelfAttCharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=0.2)
     model = nn.DataParallel(model, gpu_ids)
     log.info(f'Loading checkpoint from {args.load_path}...')
-    model = util.load_model(model, args.load_path, gpu_ids, return_step=False)
+    weight_model = util.load_model(model, WEIGHT_PT, gpu_ids, return_step=False)
+    model = util.load_model(model, MODEL_PT, gpu_ids, return_step=False)
     model = model.to(device)
+    weight_model = weight_model.to(device)
     model.eval()
+    weight_model.eval()
 
     # Evaluate
     log.info(f'Evaluating on {args.split} split...')
@@ -83,6 +90,16 @@ def main(args):
 
             # Forward
             log_p1, log_p2 = model(cc_idxs, qc_idxs, cw_idxs, qw_idxs)
+            wlog_p1, wlog_p2 = weight_model(cc_idxs, qc_idxs, cw_idxs, qw_idxs)
+
+            p2_AvNA = torch.argmax(log_p2, dim=1)
+
+            final_logp1 = torch.where(p2_AvNA == 0, log_p1, wlog_p1)
+            final_logp2 = torch.where(p2_AvNA == 0, log_p2, wlog_p2)
+
+            log_p1 = final_logp1.to(device)
+            log_p2 = final_logp2.to(device)
+
             y1, y2 = y1.to(device), y2.to(device)
             loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
             nll_meter.update(loss.item(), batch_size)
@@ -108,6 +125,9 @@ def main(args):
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':
         results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2)
+
+        print(results)
+
         results_list = [('NLL', nll_meter.avg),
                         ('F1', results['F1']),
                         ('EM', results['EM'])]
