@@ -55,7 +55,7 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    model = CharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=0.2)
+    model = SelfAttCharBiDAF(word_vectors=word_vectors, n_chars=2048, embed_size=32, max_word_len=max_word_len, hidden_size=args.hidden_size, drop_prob=0.2)
     model = nn.DataParallel(model, gpu_ids)
     log.info(f'Loading checkpoint from {args.load_path}...')
     model = util.load_model(model, args.load_path, gpu_ids, return_step=False)
